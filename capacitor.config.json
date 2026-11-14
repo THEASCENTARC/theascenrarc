@@ -1,0 +1,8 @@
+{
+  "appId": "com.ascentwealth.commandcenter",
+  "appName": "Ascent Wealth",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https"
+  }
+}

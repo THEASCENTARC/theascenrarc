@@ -1,0 +1,816 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#0a0e17" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Ascent Wealth" />
+  <title>Ascent Wealth Command Center</title>
+  <link rel="manifest" href='data:application/manifest+json,{"name":"Ascent Wealth Command Center","short_name":"Ascent Wealth","start_url":".","display":"standalone","background_color":"#0a0e17","theme_color":"#10b981"}' />
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    body { margin: 0; background-color: #0a0e17; color: #f8fafc; font-family: Inter, -apple-system, BlinkMacSystemFont, sans-serif; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+
+const { useState, useEffect, useMemo, useRef } = React;
+
+const CURRENCY_CONFIG = {
+  GBP: { symbol: '£', code: 'GBP', name: 'British Pound' },
+  USD: { symbol: '$', code: 'USD', name: 'US Dollar' },
+  EUR: { symbol: '€', code: 'EUR', name: 'Euro' },
+  INR: { symbol: '₹', code: 'INR', name: 'Indian Rupee' },
+};
+
+const FALLBACK_RATES = { GBP: 1, USD: 1.28, EUR: 1.18, INR: 107.45 };
+
+const EXPENSE_CATEGORIES = [
+  { id: 'Housing', color: '#10b981' },
+  { id: 'Utilities', color: '#3b82f6' },
+  { id: 'Subscriptions', color: '#8b5cf6' },
+  { id: 'Transport', color: '#f59e0b' },
+  { id: 'Food', color: '#ec4899' },
+  { id: 'Debt', color: '#ef4444' },
+  { id: 'Other', color: '#64748b' },
+];
+
+const DEMO_DATA = {
+  monthlyIncome: 4250,
+  bankAccounts: [
+    { id: 'ba-1', name: 'Barclays Premier Current', balance: 3850 },
+    { id: 'ba-2', name: 'Monzo Instant Access Vault', balance: 8400 },
+    { id: 'ba-3', name: 'Revolut Emergency Reserve', balance: 2150 },
+  ],
+  creditCards: [
+    { id: 'cc-1', name: 'Amex Platinum Cashback', balance: 1120, limit: 6000 },
+    { id: 'cc-2', name: 'Barclaycard Avios Plus', balance: 2480, limit: 4000 },
+    { id: 'cc-3', name: 'HSBC Balance Transfer', balance: 390, limit: 2500 },
+  ],
+  loans: [
+    { id: 'ln-1', name: 'Equipment Hire Fleet Loan', type: 'Loan', balance: 4600, apr: 6.9, monthlyPayment: 245 },
+    { id: 'ln-2', name: 'Arranged Bank Overdraft', type: 'Overdraft', balance: 350, apr: 39.9, monthlyPayment: 45 },
+  ],
+  directDebits: [
+    { id: 'dd-1', name: 'Harrow Residence Rent', amount: 1150, day: 1, category: 'Housing' },
+    { id: 'dd-2', name: 'Council Tax & Water', amount: 185, day: 5, category: 'Utilities' },
+    { id: 'dd-3', name: 'Octopus Energy Dual Fuel', amount: 132, day: 8, category: 'Utilities' },
+    { id: 'dd-4', name: 'Lexham Scooter Insurance & Fuel', amount: 118, day: 12, category: 'Transport' },
+    { id: 'dd-5', name: 'High-Protein Groceries & Whey', amount: 340, day: 15, category: 'Food' },
+    { id: 'dd-6', name: 'Google Workspace & Cloud Hosting', amount: 42, day: 18, category: 'Subscriptions' },
+    { id: 'dd-7', name: 'PlayStation Plus & Fibre Broadband', amount: 54, day: 22, category: 'Subscriptions' },
+    { id: 'dd-8', name: 'Amex & Barclaycard Minimums', amount: 165, day: 25, category: 'Debt' },
+  ],
+  timeMachine: {
+    monthlyDeposit: 650,
+    startingPot: 14400,
+    annualRate: 8.5,
+  },
+  maintenance: {
+    dayOfMonth: 25,
+    streak: 4,
+    history: [
+      { id: 'mh-1', date: '2026-08-25 20:15', netWorth: 2840, totalDebt: 10920 },
+      { id: 'mh-2', date: '2026-09-25 21:05', netWorth: 4190, totalDebt: 9850 },
+      { id: 'mh-3', date: '2026-10-25 19:42', netWorth: 5460, totalDebt: 8940 },
+    ],
+  },
+};
+
+const EMPTY_DATA = {
+  monthlyIncome: 0,
+  bankAccounts: [],
+  creditCards: [],
+  loans: [],
+  directDebits: [],
+  timeMachine: { monthlyDeposit: 0, startingPot: 0, annualRate: 7.0 },
+  maintenance: { dayOfMonth: 1, streak: 0, history: [] },
+};
+
+function App() {
+  const [vault, setVault] = useState(() => {
+    try {
+      const saved = localStorage.getItem('ascent_wealth_vault_v1');
+      return saved ? JSON.parse(saved) : DEMO_DATA;
+    } catch { return DEMO_DATA; }
+  });
+
+  const [currency, setCurrency] = useState(() => localStorage.getItem('ascent_currency') || 'GBP');
+  const [rates, setRates] = useState(FALLBACK_RATES);
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const [isAdFree, setIsAdFree] = useState(() => localStorage.getItem('ascent_ad_free') === 'true');
+  const [showSubModal, setShowSubModal] = useState(false);
+  const [showLegalModal, setShowLegalModal] = useState(false);
+  const [subPlan, setSubPlan] = useState('annual');
+  const [toast, setToast] = useState(null);
+  const [selectedDay, setSelectedDay] = useState(1);
+
+  // Form states
+  const [newBank, setNewBank] = useState({ name: '', balance: '' });
+  const [newCard, setNewCard] = useState({ name: '', balance: '', limit: '' });
+  const [newLoan, setNewLoan] = useState({ name: '', type: 'Loan', balance: '', apr: '', monthlyPayment: '' });
+  const [newDD, setNewDD] = useState({ name: '', amount: '', day: 1, category: 'Housing' });
+  const [checks, setChecks] = useState({ step1: false, step2: false, step3: false });
+
+  const fileInputRef = useRef(null);
+
+  const notify = (msg) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 3200);
+  };
+
+  useEffect(() => {
+    localStorage.setItem('ascent_wealth_vault_v1', JSON.stringify(vault));
+  }, [vault]);
+
+  useEffect(() => {
+    localStorage.setItem('ascent_currency', currency);
+  }, [currency]);
+
+  useEffect(() => {
+    fetch('https://open.er-api.com/v6/latest/GBP')
+      .then(r => r.json())
+      .then(data => {
+        if (data && data.rates) {
+          const updated = {
+            GBP: 1,
+            USD: data.rates.USD || 1.28,
+            EUR: data.rates.EUR || 1.18,
+            INR: data.rates.INR || 107.45,
+          };
+          setRates(updated);
+          localStorage.setItem('ascent_rates_cache', JSON.stringify(updated));
+        }
+      })
+      .catch(() => {
+        const cached = localStorage.getItem('ascent_rates_cache');
+        if (cached) setRates(JSON.parse(cached));
+      });
+  }, []);
+
+  const rate = rates[currency] || 1;
+  const sym = CURRENCY_CONFIG[currency]?.symbol || '£';
+
+  const fmt = (gbpVal, decimals = 0) => {
+    const converted = (Number(gbpVal) || 0) * rate;
+    return sym + converted.toLocaleString(undefined, {
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
+    });
+  };
+
+  const toBaseGBP = (inputInActiveCurrency) => {
+    const val = parseFloat(inputInActiveCurrency);
+    if (isNaN(val)) return 0;
+    return val / rate;
+  };
+
+  // Core KPI Calculations
+  const metrics = useMemo(() => {
+    const totalBankCash = vault.bankAccounts.reduce((s, a) => s + Number(a.balance || 0), 0);
+    const totalCardDebt = vault.creditCards.reduce((s, c) => s + Number(c.balance || 0), 0);
+    const totalCardLimit = vault.creditCards.reduce((s, c) => s + Number(c.limit || 0), 0);
+    const totalLoanDebt = vault.loans.reduce((s, l) => s + Number(l.balance || 0), 0);
+    const totalDebt = totalCardDebt + totalLoanDebt;
+    const netWorth = totalBankCash - totalDebt;
+    const creditUsagePct = totalCardLimit > 0 ? (totalCardDebt / totalCardLimit) * 100 : 0;
+
+    const totalDD = vault.directDebits.reduce((s, d) => s + Number(d.amount || 0), 0);
+    const totalLoanPayments = vault.loans.reduce((s, l) => s + Number(l.monthlyPayment || 0), 0);
+    const totalMonthlyOutflow = totalDD + totalLoanPayments;
+    const monthlySurplus = Number(vault.monthlyIncome || 0) - totalMonthlyOutflow;
+    const expenseRatio = vault.monthlyIncome > 0 ? (totalMonthlyOutflow / vault.monthlyIncome) * 100 : 0;
+
+    let scoreBadge = { label: 'Boosts Score', color: '#10b981', bg: 'rgba(16,185,129,0.15)' };
+    if (creditUsagePct >= 75) scoreBadge = { label: 'Severe Score Damage', color: '#ef4444', bg: 'rgba(239,68,68,0.18)' };
+    else if (creditUsagePct >= 50) scoreBadge = { label: 'Hurting Score', color: '#f97316', bg: 'rgba(249,115,22,0.18)' };
+    else if (creditUsagePct >= 30.1) scoreBadge = { label: 'Moderate Impact', color: '#f59e0b', bg: 'rgba(245,158,11,0.18)' };
+
+    return {
+      totalBankCash, totalCardDebt, totalCardLimit, totalLoanDebt,
+      totalDebt, netWorth, creditUsagePct, totalDD, totalLoanPayments,
+      totalMonthlyOutflow, monthlySurplus, expenseRatio, scoreBadge
+    };
+  }, [vault]);
+
+  const handleExport = () => {
+    const blob = new Blob([JSON.stringify(vault, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `ascent-wealth-backup-${new Date().toISOString().slice(0,10)}.json`;
+    a.click();
+    notify('Backup exported (.json)');
+  };
+
+  const handleImport = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const parsed = JSON.parse(ev.target.result);
+        setVault(parsed);
+        notify('Vault backup restored!');
+      } catch {
+        notify('Invalid JSON backup file');
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const TABS = [
+    { id: 'dashboard', label: '1. Dashboard', short: '1. Dash' },
+    { id: 'vault', label: '2. The Vault', short: '2. Vault' },
+    { id: 'calendar', label: '3. Direct Debits Calendar', short: '3. Bills' },
+    { id: 'timemachine', label: '4. Time Machine', short: '4. Future' },
+    { id: 'maintenance', label: '5. Maintenance Day', short: '5. Check-In' },
+  ];
+
+  return (
+    <div style={{ backgroundColor: '#0a0e17', minHeight: '100vh', color: '#f8fafc', paddingBottom: '115px', fontFamily: 'Inter, system-ui, sans-serif' }}>
+      {toast && (
+        <div style={{ position: 'fixed', top: 16, left: '50%', transform: 'translateX(-50%)', zIndex: 999, background: '#10b981', color: '#052e16', fontWeight: 700, padding: '10px 18px', borderRadius: 999, fontSize: 13, boxShadow: '0 10px 25px rgba(0,0,0,0.5)' }}>
+          {toast}
+        </div>
+      )}
+
+      {/* HEADER BAR */}
+      <header style={{ background: '#111827', borderBottom: '1px solid #334155', padding: '12px 16px', position: 'sticky', top: 0, zIndex: 50 }}>
+        <div style={{ maxWidth: 1180, margin: '0 auto', display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ width: 38, height: 38, borderRadius: 10, background: 'linear-gradient(135deg, #10b981 0%, #f59e0b 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, fontSize: 20, color: '#0a0e17', boxShadow: '0 0 15px rgba(16,185,129,0.35)' }}>
+              A
+            </div>
+            <div>
+              <div style={{ fontWeight: 800, fontSize: 14, letterSpacing: '0.06em', color: '#f8fafc', display: 'flex', alignItems: 'center', gap: 6 }}>
+                ASCENT WEALTH COMMAND CENTER
+                {isAdFree && <span style={{ background: '#f59e0b', color: '#0a0e17', fontSize: 10, padding: '2px 6px', borderRadius: 4, fontWeight: 900 }}>AD-FREE</span>}
+              </div>
+              <div style={{ fontSize: 11, color: '#94a3b8' }}>Personal Financial OS • Live {currency} ({sym})</div>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+            <select
+              value={currency}
+              onChange={(e) => setCurrency(e.target.value)}
+              style={{ background: '#1e293b', color: '#f8fafc', border: '1px solid #334155', borderRadius: 8, padding: '6px 10px', fontSize: 12, fontWeight: 700 }}
+            >
+              <option value="GBP">GBP (£)</option>
+              <option value="USD">USD ($)</option>
+              <option value="EUR">EUR (€)</option>
+              <option value="INR">INR (₹)</option>
+            </select>
+            <button onClick={() => { setVault(DEMO_DATA); notify('Demo Data Loaded'); }} style={{ background: '#1e293b', color: '#10b981', border: '1px solid #334155', borderRadius: 8, padding: '6px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>Load Demo Data</button>
+            <button onClick={() => { setVault(EMPTY_DATA); notify('Vault Reset to 0'); }} style={{ background: '#1e293b', color: '#ef4444', border: '1px solid #334155', borderRadius: 8, padding: '6px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>Start Fresh</button>
+            <button onClick={handleExport} style={{ background: '#1e293b', color: '#e2e8f0', border: '1px solid #334155', borderRadius: 8, padding: '6px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>Export Backup</button>
+            <button onClick={() => fileInputRef.current?.click()} style={{ background: '#1e293b', color: '#e2e8f0', border: '1px solid #334155', borderRadius: 8, padding: '6px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>Import Backup</button>
+            <input ref={fileInputRef} type="file" accept=".json" onChange={handleImport} style={{ display: 'none' }} />
+            <button onClick={() => setShowLegalModal(true)} style={{ background: '#1e293b', color: '#94a3b8', border: '1px solid #334155', borderRadius: 8, padding: '6px 10px', fontSize: 11, cursor: 'pointer' }}>Privacy & Data</button>
+          </div>
+        </div>
+      </header>
+
+      <main style={{ maxWidth: 1180, margin: '0 auto', padding: '14px' }}>
+        {/* 5 KPI SUMMARY BAR */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(165px, 1fr))', gap: 10, marginBottom: 16 }}>
+          <div style={{ background: '#111827', border: '1px solid #334155', borderRadius: 12, padding: 12 }}>
+            <div style={{ fontSize: 11, color: '#94a3b8', textTransform: 'uppercase', fontWeight: 700 }}>Net Worth</div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: metrics.netWorth >= 0 ? '#10b981' : '#ef4444', marginTop: 4 }}>{fmt(metrics.netWorth)}</div>
+            <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>Cash minus all debt</div>
+          </div>
+
+          <div style={{ background: '#111827', border: '1px solid #334155', borderRadius: 12, padding: 12 }}>
+            <div style={{ fontSize: 11, color: '#94a3b8', textTransform: 'uppercase', fontWeight: 700 }}>Total Bank Cash</div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: '#10b981', marginTop: 4 }}>{fmt(metrics.totalBankCash)}</div>
+            <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>{vault.bankAccounts.length} active accounts</div>
+          </div>
+
+          <div style={{ background: '#111827', border: '1px solid #334155', borderRadius: 12, padding: 12 }}>
+            <div style={{ fontSize: 11, color: '#94a3b8', textTransform: 'uppercase', fontWeight: 700 }}>Total Debt</div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: metrics.totalDebt > 0 ? '#ef4444' : '#10b981', marginTop: 4 }}>{fmt(metrics.totalDebt)}</div>
+            <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>Cards + Loans + Overdrafts</div>
+          </div>
+
+          <div style={{ background: '#111827', border: '1px solid #334155', borderRadius: 12, padding: 12 }}>
+            <div style={{ fontSize: 11, color: '#94a3b8', textTransform: 'uppercase', fontWeight: 700 }}>Credit Usage %</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
+              <span style={{ fontSize: 20, fontWeight: 800, color: metrics.scoreBadge.color }}>{metrics.creditUsagePct.toFixed(1)}%</span>
+              <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 999, background: metrics.scoreBadge.bg, color: metrics.scoreBadge.color, fontWeight: 700 }}>{metrics.scoreBadge.label}</span>
+            </div>
+            <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>Limit: {fmt(metrics.totalCardLimit)}</div>
+          </div>
+
+          <div style={{ background: '#111827', border: '1px solid #334155', borderRadius: 12, padding: 12 }}>
+            <div style={{ fontSize: 11, color: '#94a3b8', textTransform: 'uppercase', fontWeight: 700 }}>Monthly Surplus</div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: metrics.monthlySurplus >= 0 ? '#10b981' : '#ef4444', marginTop: 4 }}>{fmt(metrics.monthlySurplus)}</div>
+            <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>Income minus bills & debt</div>
+          </div>
+        </div>
+
+        {/* DESKTOP/TABLET TOP TAB BAR */}
+        <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 8, marginBottom: 14 }}>
+          {TABS.map(t => (
+            <button
+              key={t.id}
+              onClick={() => setActiveTab(t.id)}
+              style={{
+                background: activeTab === t.id ? '#10b981' : '#111827',
+                color: activeTab === t.id ? '#052e16' : '#cbd5e1',
+                border: '1px solid #334155',
+                padding: '9px 14px',
+                borderRadius: 10,
+                fontWeight: 700,
+                fontSize: 12,
+                whiteSpace: 'nowrap',
+                cursor: 'pointer'
+              }}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {/* TAB 1: DASHBOARD */}
+        {activeTab === 'dashboard' && (
+          <div style={{ display: 'grid', gap: 14 }}>
+            <div style={{ background: '#111827', border: '1px solid #334155', borderRadius: 14, padding: 16 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <span style={{ fontWeight: 700, fontSize: 14 }}>Expense-to-Income Ratio</span>
+                <span style={{ fontWeight: 800, color: metrics.expenseRatio < 50 ? '#10b981' : metrics.expenseRatio <= 75 ? '#f59e0b' : '#ef4444' }}>
+                  {metrics.expenseRatio.toFixed(1)}% ({fmt(metrics.totalMonthlyOutflow)} / {fmt(vault.monthlyIncome)})
+                </span>
+              </div>
+              <div style={{ width: '100%', height: 12, background: '#1e293b', borderRadius: 999, overflow: 'hidden' }}>
+                <div style={{ width: `${Math.min(100, metrics.expenseRatio)}%`, height: '100%', background: metrics.expenseRatio < 50 ? '#10b981' : metrics.expenseRatio <= 75 ? '#f59e0b' : '#ef4444' }} />
+              </div>
+              <p style={{ fontSize: 12, color: '#94a3b8', marginTop: 8, marginBottom: 0 }}>
+                {metrics.expenseRatio < 50
+                  ? 'Excellent discipline, Sir. Under 50% of your income goes to fixed obligations, leaving strong capital for wealth compounding.'
+                  : metrics.expenseRatio <= 75
+                  ? 'Moderate load (50–75%). Consider trimming high-APR debt or non-essential subscriptions to widen your surplus.'
+                  : 'Danger zone (>75%). Your monthly obligations consume most of your take-home pay. Prioritize debt paydown immediately.'}
+              </p>
+            </div>
+
+            {/* Category Breakdown & 4 Spotlight Cards */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14 }}>
+              <div style={{ background: '#111827', border: '1px solid #334155', borderRadius: 14, padding: 16 }}>
+                <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 12 }}>Monthly Outflow Breakdown</div>
+                {EXPENSE_CATEGORIES.map(cat => {
+                  const catSum = vault.directDebits.filter(d => d.category === cat.id).reduce((s, d) => s + Number(d.amount || 0), 0)
+                    + (cat.id === 'Debt' ? metrics.totalLoanPayments : 0);
+                  const pct = metrics.totalMonthlyOutflow > 0 ? (catSum / metrics.totalMonthlyOutflow) * 100 : 0;
+                  if (catSum <= 0) return null;
+                  return (
+                    <div key={cat.id} style={{ marginBottom: 10 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ width: 10, height: 10, borderRadius: '50%', background: cat.color, display: 'inline-block' }} />
+                          {cat.id}
+                        </span>
+                        <span style={{ fontWeight: 700 }}>{fmt(catSum)} ({pct.toFixed(1)}%)</span>
+                      </div>
+                      <div style={{ width: '100%', height: 6, background: '#1e293b', borderRadius: 999 }}>
+                        <div style={{ width: `${pct}%`, height: '100%', background: cat.color, borderRadius: 999 }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div style={{ display: 'grid', gap: 10 }}>
+                {(() => {
+                  const biggestBill = [...vault.directDebits].sort((a, b) => b.amount - a.amount)[0];
+                  const allDebts = [
+                    ...vault.creditCards.map(c => ({ name: c.name, bal: Number(c.balance), rate: (c.balance / (c.limit || 1)) * 100, label: 'Usage' })),
+                    ...vault.loans.map(l => ({ name: l.name, bal: Number(l.balance), rate: Number(l.apr), label: 'APR' })),
+                  ];
+                  const biggestDebt = [...allDebts].sort((a, b) => b.bal - a.bal)[0];
+                  const highestRate = [...allDebts].sort((a, b) => b.rate - a.rate)[0];
+                  const cardsOver30 = vault.creditCards.filter(c => c.limit > 0 && (c.balance / c.limit) > 0.3);
+                  const paydownNeeded = cardsOver30.reduce((s, c) => s + Math.max(0, c.balance - c.limit * 0.3), 0);
+
+                  return (
+                    <>
+                      <div style={{ background: '#1e293b', border: '1px solid #334155', borderLeft: '4px solid #f59e0b', borderRadius: 12, padding: 12 }}>
+                        <div style={{ fontSize: 11, color: '#f59e0b', fontWeight: 700 }}>1. BIGGEST SINGLE EXPENSE</div>
+                        <div style={{ fontSize: 15, fontWeight: 800, marginTop: 2 }}>{biggestBill ? `${biggestBill.name} — ${fmt(biggestBill.amount)}` : 'No bills logged'}</div>
+                        <div style={{ fontSize: 11, color: '#94a3b8' }}>{biggestBill && metrics.totalMonthlyOutflow > 0 ? `${((biggestBill.amount / metrics.totalMonthlyOutflow) * 100).toFixed(1)}% of monthly outflow` : 'Add bills in Tab 3'}</div>
+                      </div>
+
+                      <div style={{ background: '#1e293b', border: '1px solid #334155', borderLeft: '4px solid #ef4444', borderRadius: 12, padding: 12 }}>
+                        <div style={{ fontSize: 11, color: '#ef4444', fontWeight: 700 }}>2. BIGGEST DEBT</div>
+                        <div style={{ fontSize: 15, fontWeight: 800, marginTop: 2 }}>{biggestDebt ? `${biggestDebt.name} — ${fmt(biggestDebt.bal)}` : 'Debt-free'}</div>
+                        <div style={{ fontSize: 11, color: '#94a3b8' }}>{biggestDebt && metrics.totalDebt > 0 ? `${((biggestDebt.bal / metrics.totalDebt) * 100).toFixed(1)}% of total debt` : 'Zero debt balance'}</div>
+                      </div>
+
+                      <div style={{ background: '#1e293b', border: '1px solid #334155', borderLeft: '4px solid #f97316', borderRadius: 12, padding: 12 }}>
+                        <div style={{ fontSize: 11, color: '#f97316', fontWeight: 700 }}>3. HIGHEST USAGE / INTEREST DEBT</div>
+                        <div style={{ fontSize: 15, fontWeight: 800, marginTop: 2 }}>{highestRate ? `${highestRate.name} (${highestRate.rate.toFixed(1)}% ${highestRate.label})` : 'None'}</div>
+                        <div style={{ fontSize: 11, color: '#94a3b8' }}>Target this balance first to minimize interest & score drag</div>
+                      </div>
+
+                      <div style={{ background: '#1e293b', border: '1px solid #334155', borderLeft: '4px solid #10b981', borderRadius: 12, padding: 12 }}>
+                        <div style={{ fontSize: 11, color: '#10b981', fontWeight: 700 }}>4. CREDIT SCORE SHIELD (30% RULE)</div>
+                        <div style={{ fontSize: 15, fontWeight: 800, marginTop: 2 }}>{cardsOver30.length === 0 ? 'All Cards Under 30% Safe Limit' : `${cardsOver30.length} Card(s) Over 30% Safe Limit`}</div>
+                        <div style={{ fontSize: 11, color: '#94a3b8' }}>{cardsOver30.length === 0 ? 'Optimal credit utilization achieved' : `Pay down ${fmt(paydownNeeded)} across high-usage cards to boost your credit score.`}</div>
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 2: THE VAULT */}
+        {activeTab === 'vault' && (
+          <div style={{ display: 'grid', gap: 16 }}>
+            <div style={{ background: '#111827', border: '1px solid #334155', borderRadius: 14, padding: 16 }}>
+              <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 8 }}>Section A: Monthly Take-Home Income ({sym})</div>
+              <input
+                type="number"
+                value={Math.round(vault.monthlyIncome * rate)}
+                onChange={(e) => setVault({ ...vault, monthlyIncome: toBaseGBP(e.target.value) })}
+                style={{ background: '#1e293b', color: '#10b981', border: '1px solid #334155', borderRadius: 8, padding: '10px 12px', fontSize: 16, fontWeight: 800, width: '100%', maxWidth: 320 }}
+              />
+            </div>
+
+            <div style={{ background: '#111827', border: '1px solid #334155', borderRadius: 14, padding: 16 }}>
+              <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10 }}>Section B: Bank Accounts</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+                <input placeholder="Account Name" value={newBank.name} onChange={e => setNewBank({ ...newBank, name: e.target.value })} style={{ background: '#1e293b', color: '#fff', border: '1px solid #334155', borderRadius: 8, padding: 8, flex: 1 }} />
+                <input type="number" placeholder={`Balance (${sym})`} value={newBank.balance} onChange={e => setNewBank({ ...newBank, balance: e.target.value })} style={{ background: '#1e293b', color: '#fff', border: '1px solid #334155', borderRadius: 8, padding: 8, width: 140 }} />
+                <button onClick={() => {
+                  if (!newBank.name) return;
+                  setVault({ ...vault, bankAccounts: [...vault.bankAccounts, { id: 'ba-' + Date.now(), name: newBank.name, balance: toBaseGBP(newBank.balance) }] });
+                  setNewBank({ name: '', balance: '' });
+                }} style={{ background: '#10b981', color: '#052e16', fontWeight: 800, border: 'none', borderRadius: 8, padding: '8px 14px', cursor: 'pointer' }}>+ Add Bank</button>
+              </div>
+              {vault.bankAccounts.map(acc => (
+                <div key={acc.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#1e293b', padding: '10px 12px', borderRadius: 10, marginBottom: 8 }}>
+                  <span style={{ fontWeight: 600 }}>{acc.name}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span style={{ color: '#10b981', fontWeight: 800 }}>{fmt(acc.balance)}</span>
+                    <button onClick={() => setVault({ ...vault, bankAccounts: vault.bankAccounts.filter(b => b.id !== acc.id) })} style={{ background: 'transparent', color: '#ef4444', border: 'none', cursor: 'pointer', fontWeight: 700 }}>✕</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ background: '#111827', border: '1px solid #334155', borderRadius: 14, padding: 16 }}>
+              <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10 }}>Section C: Credit Cards & Score Monitor</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+                <input placeholder="Card Name" value={newCard.name} onChange={e => setNewCard({ ...newCard, name: e.target.value })} style={{ background: '#1e293b', color: '#fff', border: '1px solid #334155', borderRadius: 8, padding: 8, flex: 1 }} />
+                <input type="number" placeholder={`Balance (${sym})`} value={newCard.balance} onChange={e => setNewCard({ ...newCard, balance: e.target.value })} style={{ background: '#1e293b', color: '#fff', border: '1px solid #334155', borderRadius: 8, padding: 8, width: 130 }} />
+                <input type="number" placeholder={`Limit (${sym})`} value={newCard.limit} onChange={e => setNewCard({ ...newCard, limit: e.target.value })} style={{ background: '#1e293b', color: '#fff', border: '1px solid #334155', borderRadius: 8, padding: 8, width: 130 }} />
+                <button onClick={() => {
+                  if (!newCard.name) return;
+                  setVault({ ...vault, creditCards: [...vault.creditCards, { id: 'cc-' + Date.now(), name: newCard.name, balance: toBaseGBP(newCard.balance), limit: toBaseGBP(newCard.limit) }] });
+                  setNewCard({ name: '', balance: '', limit: '' });
+                }} style={{ background: '#10b981', color: '#052e16', fontWeight: 800, border: 'none', borderRadius: 8, padding: '8px 14px', cursor: 'pointer' }}>+ Add Card</button>
+              </div>
+              {vault.creditCards.map(c => {
+                const usage = c.limit > 0 ? (c.balance / c.limit) * 100 : 0;
+                const safeLimit = c.limit * 0.3;
+                let badge = { text: 'Boosts Score', color: '#10b981' };
+                if (usage >= 75) badge = { text: 'Severe Score Damage', color: '#ef4444' };
+                else if (usage >= 50) badge = { text: 'Hurting Score', color: '#f97316' };
+                else if (usage >= 30.1) badge = { text: 'Moderate Impact', color: '#f59e0b' };
+
+                return (
+                  <div key={c.id} style={{ background: '#1e293b', padding: 12, borderRadius: 10, marginBottom: 10 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontWeight: 700 }}>{c.name}</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 999, background: 'rgba(0,0,0,0.35)', color: badge.color, fontWeight: 700 }}>{badge.text}</span>
+                        <button onClick={() => setVault({ ...vault, creditCards: vault.creditCards.filter(x => x.id !== c.id) })} style={{ background: 'transparent', color: '#ef4444', border: 'none', cursor: 'pointer', fontWeight: 700 }}>✕</button>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#cbd5e1', marginTop: 6 }}>
+                      <span>Balance: <b>{fmt(c.balance)}</b> / Limit: {fmt(c.limit)} ({usage.toFixed(1)}%)</span>
+                      <span style={{ color: '#10b981' }}>Suggested 30% Safe Limit: <b>{fmt(safeLimit)}</b></span>
+                    </div>
+                    <div style={{ width: '100%', height: 7, background: '#0a0e17', borderRadius: 999, marginTop: 6, overflow: 'hidden' }}>
+                      <div style={{ width: `${Math.min(100, usage)}%`, height: '100%', background: badge.color }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div style={{ background: '#111827', border: '1px solid #334155', borderRadius: 14, padding: 16 }}>
+              <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10 }}>Section D: Loans & Overdrafts</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+                <input placeholder="Debt Name" value={newLoan.name} onChange={e => setNewLoan({ ...newLoan, name: e.target.value })} style={{ background: '#1e293b', color: '#fff', border: '1px solid #334155', borderRadius: 8, padding: 8, flex: 1 }} />
+                <select value={newLoan.type} onChange={e => setNewLoan({ ...newLoan, type: e.target.value })} style={{ background: '#1e293b', color: '#fff', border: '1px solid #334155', borderRadius: 8, padding: 8 }}>
+                  <option value="Loan">Loan</option>
+                  <option value="Overdraft">Overdraft</option>
+                </select>
+                <input type="number" placeholder={`Balance (${sym})`} value={newLoan.balance} onChange={e => setNewLoan({ ...newLoan, balance: e.target.value })} style={{ background: '#1e293b', color: '#fff', border: '1px solid #334155', borderRadius: 8, padding: 8, width: 120 }} />
+                <input type="number" placeholder="APR %" value={newLoan.apr} onChange={e => setNewLoan({ ...newLoan, apr: e.target.value })} style={{ background: '#1e293b', color: '#fff', border: '1px solid #334155', borderRadius: 8, padding: 8, width: 90 }} />
+                <input type="number" placeholder={`Monthly (${sym})`} value={newLoan.monthlyPayment} onChange={e => setNewLoan({ ...newLoan, monthlyPayment: e.target.value })} style={{ background: '#1e293b', color: '#fff', border: '1px solid #334155', borderRadius: 8, padding: 8, width: 120 }} />
+                <button onClick={() => {
+                  if (!newLoan.name) return;
+                  setVault({ ...vault, loans: [...vault.loans, { id: 'ln-' + Date.now(), name: newLoan.name, type: newLoan.type, balance: toBaseGBP(newLoan.balance), apr: Number(newLoan.apr || 0), monthlyPayment: toBaseGBP(newLoan.monthlyPayment) }] });
+                  setNewLoan({ name: '', type: 'Loan', balance: '', apr: '', monthlyPayment: '' });
+                }} style={{ background: '#10b981', color: '#052e16', fontWeight: 800, border: 'none', borderRadius: 8, padding: '8px 14px', cursor: 'pointer' }}>+ Add Debt</button>
+              </div>
+              {vault.loans.map(l => (
+                <div key={l.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#1e293b', padding: '10px 12px', borderRadius: 10, marginBottom: 8 }}>
+                  <div>
+                    <div style={{ fontWeight: 700 }}>{l.name} <span style={{ fontSize: 11, color: '#94a3b8' }}>({l.type} • {l.apr}% APR)</span></div>
+                    <div style={{ fontSize: 12, color: '#94a3b8' }}>Monthly Payment: {fmt(l.monthlyPayment)}</div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span style={{ color: '#ef4444', fontWeight: 800 }}>{fmt(l.balance)}</span>
+                    <button onClick={() => setVault({ ...vault, loans: vault.loans.filter(x => x.id !== l.id) })} style={{ background: 'transparent', color: '#ef4444', border: 'none', cursor: 'pointer', fontWeight: 700 }}>✕</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* TAB 3: DIRECT DEBITS CALENDAR */}
+        {activeTab === 'calendar' && (
+          <div style={{ display: 'grid', gap: 16 }}>
+            <div style={{ background: '#111827', border: '1px solid #334155', borderRadius: 14, padding: 16 }}>
+              <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10 }}>Add Direct Debit</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                <input placeholder="Bill Name" value={newDD.name} onChange={e => setNewDD({ ...newDD, name: e.target.value })} style={{ background: '#1e293b', color: '#fff', border: '1px solid #334155', borderRadius: 8, padding: 8, flex: 1 }} />
+                <input type="number" placeholder={`Amount (${sym})`} value={newDD.amount} onChange={e => setNewDD({ ...newDD, amount: e.target.value })} style={{ background: '#1e293b', color: '#fff', border: '1px solid #334155', borderRadius: 8, padding: 8, width: 120 }} />
+                <select value={newDD.day} onChange={e => setNewDD({ ...newDD, day: Number(e.target.value) })} style={{ background: '#1e293b', color: '#fff', border: '1px solid #334155', borderRadius: 8, padding: 8 }}>
+                  {Array.from({ length: 31 }, (_, i) => i + 1).map(d => <option key={d} value={d}>Day {d}</option>)}
+                </select>
+                <select value={newDD.category} onChange={e => setNewDD({ ...newDD, category: e.target.value })} style={{ background: '#1e293b', color: '#fff', border: '1px solid #334155', borderRadius: 8, padding: 8 }}>
+                  {EXPENSE_CATEGORIES.map(c => <option key={c.id} value={c.id}>{c.id}</option>)}
+                </select>
+                <button onClick={() => {
+                  if (!newDD.name) return;
+                  setVault({ ...vault, directDebits: [...vault.directDebits, { id: 'dd-' + Date.now(), name: newDD.name, amount: toBaseGBP(newDD.amount), day: newDD.day, category: newDD.category }] });
+                  setNewDD({ name: '', amount: '', day: 1, category: 'Housing' });
+                }} style={{ background: '#10b981', color: '#052e16', fontWeight: 800, border: 'none', borderRadius: 8, padding: '8px 14px', cursor: 'pointer' }}>+ Add Bill</button>
+              </div>
+            </div>
+
+            <div style={{ background: '#111827', border: '1px solid #334155', borderRadius: 14, padding: 16 }}>
+              <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10 }}>1–31 Monthly Billing Calendar (Tap any day)</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 6 }}>
+                {Array.from({ length: 31 }, (_, i) => i + 1).map(day => {
+                  const bills = vault.directDebits.filter(d => Number(d.day) === day);
+                  const sum = bills.reduce((s, b) => s + Number(b.amount || 0), 0);
+                  const active = selectedDay === day;
+                  return (
+                    <div
+                      key={day}
+                      onClick={() => setSelectedDay(day)}
+                      style={{
+                        background: bills.length > 0 ? 'rgba(16,185,129,0.16)' : '#1e293b',
+                        border: active ? '2px solid #f59e0b' : bills.length > 0 ? '1px solid #10b981' : '1px solid #334155',
+                        borderRadius: 8,
+                        padding: '6px 4px',
+                        textAlign: 'center',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <div style={{ fontSize: 11, fontWeight: 700, color: '#cbd5e1' }}>{day}</div>
+                      <div style={{ fontSize: 10, fontWeight: 800, color: bills.length > 0 ? '#10b981' : '#475569' }}>
+                        {bills.length > 0 ? fmt(sum) : '—'}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div style={{ marginTop: 12, padding: 10, background: '#1e293b', borderRadius: 8, fontSize: 12 }}>
+                <b>Day {selectedDay} Bills:</b>{' '}
+                {vault.directDebits.filter(d => Number(d.day) === selectedDay).map(b => `${b.name} (${fmt(b.amount)})`).join(', ') || 'No bills scheduled on this day.'}
+              </div>
+            </div>
+
+            <div style={{ background: '#111827', border: '1px solid #334155', borderRadius: 14, padding: 16 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
+                <span style={{ fontWeight: 700, fontSize: 14 }}>Chronological Direct Debit Schedule</span>
+                <span style={{ fontWeight: 800, color: '#10b981' }}>Total: {fmt(metrics.totalDD)}/mo</span>
+              </div>
+              {[...vault.directDebits].sort((a, b) => a.day - b.day).map(d => (
+                <div key={d.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#1e293b', padding: '9px 12px', borderRadius: 8, marginBottom: 6 }}>
+                  <span><b>Day {d.day}:</b> {d.name} <span style={{ fontSize: 11, color: '#94a3b8' }}>({d.category})</span></span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span style={{ fontWeight: 700 }}>{fmt(d.amount)}</span>
+                    <button onClick={() => setVault({ ...vault, directDebits: vault.directDebits.filter(x => x.id !== d.id) })} style={{ background: 'transparent', color: '#ef4444', border: 'none', cursor: 'pointer', fontWeight: 700 }}>✕</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* TAB 4: TIME MACHINE */}
+        {activeTab === 'timemachine' && (
+          <div style={{ display: 'grid', gap: 16 }}>
+            <div style={{ background: '#111827', border: '1px solid #334155', borderRadius: 14, padding: 16 }}>
+              <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 12 }}>Compound Savings Predictor</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+                <div>
+                  <label style={{ fontSize: 12, color: '#94a3b8' }}>Monthly Deposit: <b>{fmt(vault.timeMachine.monthlyDeposit)}</b></label>
+                  <input type="range" min="0" max="5000" step="25" value={vault.timeMachine.monthlyDeposit} onChange={e => setVault({ ...vault, timeMachine: { ...vault.timeMachine, monthlyDeposit: Number(e.target.value) } })} style={{ width: '100%', marginTop: 6 }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, color: '#94a3b8' }}>Starting Pot: <b>{fmt(vault.timeMachine.startingPot)}</b></label>
+                  <input type="range" min="0" max="100000" step="500" value={vault.timeMachine.startingPot} onChange={e => setVault({ ...vault, timeMachine: { ...vault.timeMachine, startingPot: Number(e.target.value) } })} style={{ width: '100%', marginTop: 6 }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, color: '#94a3b8' }}>Annual Return Rate: <b>{vault.timeMachine.annualRate}%</b></label>
+                  <input type="range" min="1" max="20" step="0.5" value={vault.timeMachine.annualRate} onChange={e => setVault({ ...vault, timeMachine: { ...vault.timeMachine, annualRate: Number(e.target.value) } })} style={{ width: '100%', marginTop: 6 }} />
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(185px, 1fr))', gap: 10 }}>
+              {[1, 2, 3, 5, 10].map(yr => {
+                const r = (vault.timeMachine.annualRate / 100) / 12;
+                const n = yr * 12;
+                const P = Number(vault.timeMachine.startingPot || 0);
+                const PMT = Number(vault.timeMachine.monthlyDeposit || 0);
+                const fv = r > 0 ? P * Math.pow(1 + r, n) + PMT * ((Math.pow(1 + r, n) - 1) / r) : P + PMT * n;
+                const contributed = P + PMT * n;
+                const interest = Math.max(0, fv - contributed);
+
+                return (
+                  <div key={yr} style={{ background: '#111827', border: '1px solid #334155', borderRadius: 12, padding: 14 }}>
+                    <div style={{ fontSize: 12, color: '#f59e0b', fontWeight: 800 }}>YEAR {yr} PROJECTION</div>
+                    <div style={{ fontSize: 20, fontWeight: 900, color: '#10b981', margin: '6px 0' }}>{fmt(fv)}</div>
+                    <div style={{ fontSize: 11, color: '#94a3b8' }}>Deposits: {fmt(contributed)}</div>
+                    <div style={{ fontSize: 11, color: '#10b981' }}>Compound Interest: +{fmt(interest)}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* TAB 5: MAINTENANCE DAY */}
+        {activeTab === 'maintenance' && (
+          <div style={{ display: 'grid', gap: 16 }}>
+            <div style={{ background: '#111827', border: '1px solid #334155', borderRadius: 14, padding: 16, display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+              <div>
+                <div style={{ fontWeight: 800, fontSize: 15 }}>Monthly Maintenance Day Engine</div>
+                <div style={{ fontSize: 12, color: '#94a3b8' }}>Scheduled Check-In Day: Day {vault.maintenance.dayOfMonth} of every month</div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <select
+                  value={vault.maintenance.dayOfMonth}
+                  onChange={e => setVault({ ...vault, maintenance: { ...vault.maintenance, dayOfMonth: Number(e.target.value) } })}
+                  style={{ background: '#1e293b', color: '#fff', border: '1px solid #334155', borderRadius: 8, padding: '8px 10px' }}
+                >
+                  {Array.from({ length: 28 }, (_, i) => i + 1).map(d => <option key={d} value={d}>Day {d}</option>)}
+                </select>
+                <div style={{ background: 'rgba(245,158,11,0.16)', border: '1px solid #f59e0b', color: '#f59e0b', padding: '6px 12px', borderRadius: 999, fontWeight: 800, fontSize: 12 }}>
+                  🔥 Streak: {vault.maintenance.streak} Months
+                </div>
+              </div>
+            </div>
+
+            <div style={{ background: '#111827', border: '1px solid #334155', borderRadius: 14, padding: 16 }}>
+              <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10 }}>Guided 3-Step Monthly Update Checklist</div>
+              {[
+                { key: 'step1', label: "Step 1: Update last month's final Bank Balances." },
+                { key: 'step2', label: 'Step 2: Update current Credit Card & Loan Balances.' },
+                { key: 'step3', label: 'Step 3: Confirm all Direct Debits and Monthly Income are up to date.' },
+              ].map(st => (
+                <label key={st.key} style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#1e293b', padding: 12, borderRadius: 10, marginBottom: 8, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={checks[st.key]} onChange={e => setChecks({ ...checks, [st.key]: e.target.checked })} />
+                  <span style={{ fontWeight: 600, fontSize: 13 }}>{st.label}</span>
+                </label>
+              ))}
+              <button
+                onClick={() => {
+                  const entry = {
+                    id: 'mh-' + Date.now(),
+                    date: new Date().toISOString().slice(0, 16).replace('T', ' '),
+                    netWorth: metrics.netWorth,
+                    totalDebt: metrics.totalDebt,
+                  };
+                  setVault({
+                    ...vault,
+                    maintenance: {
+                      ...vault.maintenance,
+                      streak: vault.maintenance.streak + 1,
+                      history: [entry, ...vault.maintenance.history],
+                    },
+                  });
+                  setChecks({ step1: false, step2: false, step3: false });
+                  notify('Maintenance Day Completed! +1 Streak');
+                }}
+                style={{ width: '100%', background: '#10b981', color: '#052e16', fontWeight: 900, padding: 12, borderRadius: 10, border: 'none', marginTop: 6, cursor: 'pointer' }}
+              >
+                Complete Maintenance Day (+1 Monthly Streak)
+              </button>
+            </div>
+
+            <div style={{ background: '#111827', border: '1px solid #334155', borderRadius: 14, padding: 16 }}>
+              <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10 }}>Maintenance History Log</div>
+              {vault.maintenance.history.map(h => (
+                <div key={h.id} style={{ display: 'flex', justifyContent: 'space-between', background: '#1e293b', padding: '10px 12px', borderRadius: 8, marginBottom: 6, fontSize: 12 }}>
+                  <span style={{ color: '#94a3b8' }}>{h.date}</span>
+                  <span>Net Worth: <b style={{ color: '#10b981' }}>{fmt(h.netWorth)}</b> • Debt: <b style={{ color: '#ef4444' }}>{fmt(h.totalDebt)}</b></span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </main>
+
+      {/* STICKY ADMOB BANNER (FREE TIER) + BOTTOM NAVIGATION */}
+      <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 90 }}>
+        {!isAdFree && (
+          <div style={{ background: '#1e293b', borderTop: '1px solid #334155', padding: '6px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11 }}>
+            <span><b style={{ color: '#f59e0b' }}>AD</b> • Sponsored Financial Partner Banner</span>
+            <button onClick={() => setShowSubModal(true)} style={{ background: '#f59e0b', color: '#0a0e17', border: 'none', borderRadius: 6, padding: '4px 10px', fontWeight: 800, fontSize: 11, cursor: 'pointer' }}>
+              Go Ad-Free
+            </button>
+          </div>
+        )}
+        <nav style={{ background: 'rgba(17,24,39,0.96)', backdropFilter: 'blur(12px)', borderTop: '1px solid #334155', display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', padding: '8px 4px' }}>
+          {TABS.map(t => (
+            <button
+              key={t.id}
+              onClick={() => setActiveTab(t.id)}
+              style={{ background: 'transparent', border: 'none', color: activeTab === t.id ? '#10b981' : '#94a3b8', fontWeight: activeTab === t.id ? 800 : 600, fontSize: 11, padding: '6px 2px', cursor: 'pointer' }}
+            >
+              {t.short}
+            </button>
+          ))}
+        </nav>
+      </div>
+
+      {/* AD-FREE SUBSCRIPTION MODAL */}
+      {showSubModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: 16 }}>
+          <div style={{ background: '#111827', border: '1px solid #334155', borderRadius: 16, maxWidth: 420, width: '100%', padding: 20 }}>
+            <h3 style={{ margin: '0 0 6px 0', color: '#f59e0b' }}>Ascent Wealth Ad-Free Pass</h3>
+            <p style={{ fontSize: 12, color: '#94a3b8', marginTop: 0 }}>Remove all banner advertisements permanently while supporting continuous updates.</p>
+            <div style={{ display: 'grid', gap: 8, margin: '14px 0' }}>
+              <div onClick={() => setSubPlan('monthly')} style={{ padding: 12, borderRadius: 10, border: subPlan === 'monthly' ? '2px solid #10b981' : '1px solid #334155', background: '#1e293b', cursor: 'pointer', display: 'flex', justifyContent: 'space-between' }}>
+                <span>Monthly Ad-Free</span>
+                <b>{fmt(1.99, 2)} / month</b>
+              </div>
+              <div onClick={() => setSubPlan('annual')} style={{ padding: 12, borderRadius: 10, border: subPlan === 'annual' ? '2px solid #10b981' : '1px solid #334155', background: '#1e293b', cursor: 'pointer', display: 'flex', justifyContent: 'space-between' }}>
+                <span>Annual Ad-Free (Save 37%)</span>
+                <b>{fmt(14.99, 2)} / year</b>
+              </div>
+            </div>
+            <button onClick={() => { setIsAdFree(true); localStorage.setItem('ascent_ad_free', 'true'); setShowSubModal(false); notify('Ad-Free Subscription Activated!'); }} style={{ width: '100%', background: '#10b981', color: '#052e16', fontWeight: 900, padding: 12, borderRadius: 10, border: 'none', cursor: 'pointer', marginBottom: 8 }}>
+              Subscribe Now
+            </button>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#94a3b8' }}>
+              <span onClick={() => { setIsAdFree(true); localStorage.setItem('ascent_ad_free', 'true'); setShowSubModal(false); notify('Purchases Restored'); }} style={{ cursor: 'pointer', textDecoration: 'underline' }}>Restore Purchases</span>
+              <span onClick={() => setShowSubModal(false)} style={{ cursor: 'pointer' }}>Close</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* PRIVACY, EULA & ACCOUNT DELETION MODAL */}
+      {showLegalModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: 16 }}>
+          <div style={{ background: '#111827', border: '1px solid #334155', borderRadius: 16, maxWidth: 460, width: '100%', padding: 20 }}>
+            <h3 style={{ margin: '0 0 8px 0' }}>Privacy, Terms & Data Deletion</h3>
+            <p style={{ fontSize: 12, color: '#94a3b8' }}>Ascent Wealth Command Center stores your financial metrics locally and in your encrypted cloud vault. For educational & personal budgeting use only; not regulated financial advice.</p>
+            <button
+              onClick={() => {
+                localStorage.clear();
+                setVault(EMPTY_DATA);
+                setIsAdFree(false);
+                setShowLegalModal(false);
+                notify('All Local & Cloud Data Permanently Deleted');
+              }}
+              style={{ width: '100%', background: '#ef4444', color: '#fff', fontWeight: 800, padding: 10, borderRadius: 8, border: 'none', cursor: 'pointer', marginBottom: 10 }}
+            >
+              Delete Account & Wipe All Vault Data (Apple/Play Compliance)
+            </button>
+            <button onClick={() => setShowLegalModal(false)} style={{ width: '100%', background: '#1e293b', color: '#cbd5e1', padding: 10, borderRadius: 8, border: '1px solid #334155', cursor: 'pointer' }}>Close</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App />);
+
+  </script>
+</body>
+</html>
